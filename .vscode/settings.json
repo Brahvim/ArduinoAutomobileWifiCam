@@ -1,5 +1,4 @@
 {
-    "C_Cpp.intelliSenseEngine": "default",
     "idf.adapterTargetName": "esp32",
     "idf.customExtraPaths": "/home/brahvim/Documents/Code/WindowsCode/Arduino/Hardware/Espressif/esp-idf/tools/tools/xtensa-esp-elf-gdb/12.1_20221002/xtensa-esp-elf-gdb/bin:/home/brahvim/Documents/Code/WindowsCode/Arduino/Hardware/Espressif/esp-idf/tools/tools/riscv32-esp-elf-gdb/12.1_20221002/riscv32-esp-elf-gdb/bin:/home/brahvim/Documents/Code/WindowsCode/Arduino/Hardware/Espressif/esp-idf/tools/tools/xtensa-esp32-elf/esp-12.2.0_20230208/xtensa-esp32-elf/bin:/home/brahvim/Documents/Code/WindowsCode/Arduino/Hardware/Espressif/esp-idf/tools/tools/xtensa-esp32s2-elf/esp-12.2.0_20230208/xtensa-esp32s2-elf/bin:/home/brahvim/Documents/Code/WindowsCode/Arduino/Hardware/Espressif/esp-idf/tools/tools/xtensa-esp32s3-elf/esp-12.2.0_20230208/xtensa-esp32s3-elf/bin:/home/brahvim/Documents/Code/WindowsCode/Arduino/Hardware/Espressif/esp-idf/tools/tools/riscv32-esp-elf/esp-12.2.0_20230208/riscv32-esp-elf/bin:/home/brahvim/Documents/Code/WindowsCode/Arduino/Hardware/Espressif/esp-idf/tools/tools/esp32ulp-elf/2.35_20220830/esp32ulp-elf/bin:/home/brahvim/Documents/Code/WindowsCode/Arduino/Hardware/Espressif/esp-idf/tools/tools/cmake/3.24.0/bin:/home/brahvim/Documents/Code/WindowsCode/Arduino/Hardware/Espressif/esp-idf/tools/tools/openocd-esp32/v0.12.0-esp32-20230419/openocd-esp32/bin:/home/brahvim/Documents/Code/WindowsCode/Arduino/Hardware/Espressif/esp-idf/tools/tools/ninja/1.10.2:/home/brahvim/Documents/Code/WindowsCode/Arduino/Hardware/Espressif/esp-idf/tools/tools/esp-rom-elfs/20230320",
     "idf.customExtraVars": {
@@ -27,6 +26,9 @@
         "LEDC",
         "lenc",
         "llums",
+        "LOGD",
+        "LOGI",
+        "LOGW",
         "MJPG",
         "obuf",
         "offx",
@@ -52,6 +54,11 @@
         "XIAO"
     ],
     "idf.flashType": "UART",
+    "C_Cpp.exclusionPolicy": "checkFolders",
+    "C_Cpp.files.exclude": { // Inserted by Brahvim!...
+        "{$workspaceFolder}/build/**": true,
+        "{$workspaceFolder}/managed_components/**": true,
+    },
     "files.associations": {
         "*.s": "asm-intel-x86-generic",
         "*.asm": "asm-intel-x86-generic",

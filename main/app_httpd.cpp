@@ -1171,7 +1171,8 @@ static esp_err_t index_handler(httpd_req_t *req) {
 
 void startCameraServer() {
 	httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-	config.max_uri_handlers = 16;
+	// config.max_uri_handlers = 16;
+	config.max_uri_handlers = 2;
 
 	httpd_uri_t stream_uri = {
 

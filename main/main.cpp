@@ -41,8 +41,10 @@ extern "C" void app_main() {
 	Serial.println();
 
 	camera_config_t config;
-	config.ledc_channel = LEDC_CHANNEL_0;
-	config.ledc_timer = LEDC_TIMER_0;
+
+	config.fb_count = 1;
+	config.jpeg_quality = 12;
+
 	config.pin_d0 = Y2_GPIO_NUM;
 	config.pin_d1 = Y3_GPIO_NUM;
 	config.pin_d2 = Y4_GPIO_NUM;
@@ -51,74 +53,82 @@ extern "C" void app_main() {
 	config.pin_d5 = Y7_GPIO_NUM;
 	config.pin_d6 = Y8_GPIO_NUM;
 	config.pin_d7 = Y9_GPIO_NUM;
-	config.pin_xclk = XCLK_GPIO_NUM;
+
 	config.pin_pclk = PCLK_GPIO_NUM;
-	config.pin_vsync = VSYNC_GPIO_NUM;
+	config.pin_xclk = XCLK_GPIO_NUM;
+
 	config.pin_href = HREF_GPIO_NUM;
-	config.pin_sccb_sda = SIOD_GPIO_NUM;
-	config.pin_sccb_scl = SIOC_GPIO_NUM;
 	config.pin_pwdn = PWDN_GPIO_NUM;
 	config.pin_reset = RESET_GPIO_NUM;
+	config.pin_vsync = VSYNC_GPIO_NUM;
+
+	config.pin_sccb_scl = SIOC_GPIO_NUM;
+	config.pin_sccb_sda = SIOD_GPIO_NUM;
+
+	config.ledc_timer = LEDC_TIMER_0;
+	config.ledc_channel = LEDC_CHANNEL_0;
+
 	config.xclk_freq_hz = 20000000;
 	config.frame_size = FRAMESIZE_UXGA;
-	config.pixel_format = PIXFORMAT_JPEG; // for streaming
-	// config.pixel_format = PIXFORMAT_RGB565; // for face detection/recognition
-	config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
-	config.fb_location = CAMERA_FB_IN_PSRAM;
-	config.jpeg_quality = 12;
-	config.fb_count = 1;
+	config.pixel_format = PIXFORMAT_JPEG; // JPEG for streaming. Use `PIXFORMAT_RGB565` for best face detection and recognition.
 
-	// if PSRAM IC present, init with UXGA resolution and higher JPEG quality
-	//                      for larger pre-allocated frame buffer.
+	config.fb_location = CAMERA_FB_IN_PSRAM;
+	config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+
+	// If we have PSRAM, go with a UXGA resolution instead. Also, higher JPEG quality!
+	// Why? Because now we *can* have a *larger* pre-allocated frame buffer.
 	if (config.pixel_format == PIXFORMAT_JPEG) {
+
 		if (psramFound()) {
-			config.jpeg_quality = 10;
 			config.fb_count = 2;
+			config.jpeg_quality = 10;
 			config.grab_mode = CAMERA_GRAB_LATEST;
 		} else {
-			// Limit the frame size when PSRAM is not available
+			// No PSRAM :(
 			config.frame_size = FRAMESIZE_SVGA;
 			config.fb_location = CAMERA_FB_IN_DRAM;
 		}
+
 	} else {
-		// Best option for face detection/recognition
+		// Best option for face detection and recognition:
 		config.frame_size = FRAMESIZE_240X240;
-#if CONFIG_IDF_TARGET_ESP32S3
+#if CONFIG_IDF_TARGET_ESP32S3 // This chip has enough DRAM for two frames!
 		config.fb_count = 2;
 #endif
 	}
 
-#if defined(CAMERA_MODEL_ESP_EYE)
+#if defined(CAMERA_MODEL_ESP_EYE) // Pins `13` and `14` are `INPUT_PULLUP` pins...
 	pinMode(13, INPUT_PULLUP);
 	pinMode(14, INPUT_PULLUP);
 #endif
 
-	// camera init
-	esp_err_t err = esp_camera_init(&config);
+	// This variable is not reused after this *one* check:
+	esp_err_t const err = esp_camera_init(&config);
 	if (err != ESP_OK) {
 		Serial.printf("Camera init failed with error 0x%x", err);
 		return;
 	}
 
-	sensor_t *s = esp_camera_sensor_get();
-	// initial sensors are flipped vertically and colors are a bit saturated
-	if (s->id.PID == OV3660_PID) {
-		s->set_vflip(s, 1);		  // flip it back
-		s->set_brightness(s, 1);  // up the brightness just a bit
-		s->set_saturation(s, -2); // lower the saturation
+	sensor_t *sensor = esp_camera_sensor_get(); // Can't be a `const*`, see method calls in conditional compilation blocks below.
+	// Initially, the sensors are flipped vertically. The colors are a *bit* saturated. We aim to correct that here:
+	if (sensor->id.PID == OV3660_PID) {
+		sensor->set_vflip(sensor, 1);		// ...Flip it back,
+		sensor->set_brightness(sensor, 1);  // Up the brightness *just a bit*.
+		sensor->set_saturation(sensor, -2); // Lower the saturation.
 	}
-	// drop down frame size for higher initial frame rate
+
+	// Drop down the frame-size for a higher *initial frame-rate:*
 	if (config.pixel_format == PIXFORMAT_JPEG) {
-		s->set_framesize(s, FRAMESIZE_QVGA);
+		sensor->set_framesize(sensor, FRAMESIZE_QVGA);
 	}
 
 #if defined(CAMERA_MODEL_M5STACK_WIDE) || defined(CAMERA_MODEL_M5STACK_ESP32CAM)
-	s->set_vflip(s, 1);
-	s->set_hmirror(s, 1);
+	sensor->set_vflip(sensor, 1);
+	sensor->set_hmirror(sensor, 1);
 #endif
 
 #if defined(CAMERA_MODEL_ESP32S3_EYE)
-	s->set_vflip(s, 1);
+	sensor->set_vflip(sensor, 1);
 #endif
 
 	// Setup LED FLash if LED pin is defined in camera_pins.h
@@ -133,15 +143,16 @@ extern "C" void app_main() {
 		delay(500);
 		Serial.print(".");
 	}
+
 	Serial.println("");
-	Serial.println("WiFi connected");
+	Serial.println("WiFi connected!");
 
 	Wire.begin();
-	Serial.println("Wire begun");
+	Serial.println("I2C begun.");
 
 	startCameraServer();
 
-	Serial.print("Camera Ready! Use 'http://");
+	Serial.print("Camera stream is now available on `http://");
 	Serial.print(WiFi.localIP());
-	Serial.println("' to connect");
+	Serial.println(":81/stream`. Enjoy!");
 }
