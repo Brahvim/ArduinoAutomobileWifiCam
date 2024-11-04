@@ -24,6 +24,14 @@ static enum protocol_android_controls_button_event s_button_states[PROTOCOL_ANDR
 
 };
 
+static bool is_valid(enum protocol_android_controls_button_event const p_event) {
+	return p_event > PROTOCOL_ANDROID_CONTROLS_BUTTON_EVENT_NULL && p_event < PROTOCOL_ANDROID_CONTROLS_BUTTON_EVENT_TOTAL_NUMBER_OF_EVENTS;
+}
+
+static bool is_valid(enum protocol_android_controls_button_id const p_button) {
+	return p_button > PROTOCOL_ANDROID_CONTROLS_BUTTON_ID_NULL && p_button < PROTOCOL_ANDROID_CONTROLS_BUTTON_ID_TOTAL_NUMBER_OF_IDS;
+}
+
 static char const* wire_status_to_string(uint8_t const p_status) {
 	/*
 
@@ -58,11 +66,18 @@ static char const* wire_status_to_string(uint8_t const p_status) {
 }
 
 static esp_err_t send_i2c_message(EspCamMessageType const p_command) {
-	uint8_t resultMessageTypeData[sizeof(EspCamMessageType)];
+	static_assert(sizeof(EspCamMessageType) == sizeof(uint8_t), "`EspCamMessageType` is no longer a single byte. *`memcpy()1!1!!`* (Use below code!)");
 
-	memcpy(resultMessageTypeData, &p_command, sizeof(EspCamMessageType));
+	// ...So if it ain't a byte no mo', *use this:*
+	// uint8_t resultMessageTypeData[sizeof(EspCamMessageType)];
+	//
+	// memcpy(resultMessageTypeData, &p_command, sizeof(EspCamMessageType));
+	// Wire.beginTransmission(I2C_ADDR_ARDUINO);
+	// size_t const bytes_sent = Wire.write(resultMessageTypeData, sizeof(EspCamMessageType));
+	// uint8_t const wire_status = Wire.endTransmission();
+
 	Wire.beginTransmission(I2C_ADDR_ARDUINO);
-	size_t const bytes_sent = Wire.write(resultMessageTypeData, sizeof(EspCamMessageType));
+	size_t const bytes_sent = Wire.write((uint8_t*) &p_command, sizeof(EspCamMessageType));
 	uint8_t const wire_status = Wire.endTransmission();
 
 	if (bytes_sent != sizeof(EspCamMessageType)) {
@@ -111,53 +126,59 @@ static void update_button_state(enum protocol_android_controls_button_id const p
 }
 
 static esp_err_t protocol_android_controls_handler(httpd_req_t *p_request) {
-	char* str_url;
-	esp_err_t to_ret = ESP_FAIL;
 	size_t str_len = 1 + httpd_req_get_url_query_len(p_request);
+	esp_err_t to_ret = ESP_OK;
 
-	if (str_len > 1) {
-		str_url = (char*) malloc(str_len);
+	if (str_len < 2) {
+		to_ret &= httpd_resp_set_type(p_request, PROTOCOL_ANDROID_CONTROLS_HTTP_CONTENT_TYPE); // Not strictly required.
+		to_ret &= httpd_resp_set_status(p_request, "400 Bad Request");
+		to_ret &= httpd_resp_send(p_request, NULL, 0);
 
-		if (httpd_req_get_url_query_str(p_request, str_url, str_len) == ESP_OK) {
-			enum protocol_android_controls_button_id button = PROTOCOL_ANDROID_CONTROLS_BUTTON_ID_NULL;
-			enum protocol_android_controls_button_event event = PROTOCOL_ANDROID_CONTROLS_BUTTON_EVENT_NULL;
-
-			char value_http_param_event[sizeof(enum protocol_android_controls_button_event)];
-			char value_http_param_button[sizeof(enum protocol_android_controls_button_id)];
-
-			if (
-				httpd_query_key_value(
-					str_url,
-					PROTOCOL_ANDROID_CONTROLS_HTTP_PARAMETER_BUTTON,
-					value_http_param_button,
-					sizeof(value_http_param_button)
-				) == ESP_OK) {
-				button = (enum protocol_android_controls_button_id) atoi(value_http_param_button);
-			}
-
-			if (
-				httpd_query_key_value(
-					str_url,
-					PROTOCOL_ANDROID_CONTROLS_HTTP_PARAMETER_EVENT,
-					value_http_param_event,
-					sizeof(value_http_param_event)
-				) == ESP_OK) {
-				event = (enum protocol_android_controls_button_event) atoi(value_http_param_event);
-			}
-
-			if (button && event) {
-				to_ret &= httpd_resp_set_type(p_request, PROTOCOL_ANDROID_CONTROLS_HTTP_CONTENT_TYPE); // Not strictly required.
-				// to_ret &= httpd_resp_set_status(p_request, "200 OK"); // Not strictly required.
-				to_ret = httpd_resp_send(p_request, NULL, 0);
-			} else {
-				to_ret &= httpd_resp_set_status(p_request, "400 Bad Request");
-				to_ret &= httpd_resp_send(p_request, NULL, 0);
-			}
-		}
-
-		free(str_url);
+		return ESP_OK;
 	}
 
+	char* str_url;
+	str_url = (char*) malloc(str_len);
+
+	if (httpd_req_get_url_query_str(p_request, str_url, str_len) == ESP_OK) {
+		enum protocol_android_controls_button_id button = PROTOCOL_ANDROID_CONTROLS_BUTTON_ID_NULL;
+		enum protocol_android_controls_button_event event = PROTOCOL_ANDROID_CONTROLS_BUTTON_EVENT_NULL;
+
+		char value_http_param_event[sizeof(enum protocol_android_controls_button_event)];
+		char value_http_param_button[sizeof(enum protocol_android_controls_button_id)];
+
+		if (
+			httpd_query_key_value(
+				str_url,
+				PROTOCOL_ANDROID_CONTROLS_HTTP_PARAMETER_BUTTON,
+				value_http_param_button,
+				sizeof(value_http_param_button)
+			) == ESP_OK) {
+			button = (enum protocol_android_controls_button_id) atoi(value_http_param_button);
+		}
+
+		if (
+			httpd_query_key_value(
+				str_url,
+				PROTOCOL_ANDROID_CONTROLS_HTTP_PARAMETER_EVENT,
+				value_http_param_event,
+				sizeof(value_http_param_event)
+			) == ESP_OK) {
+			event = (enum protocol_android_controls_button_event) atoi(value_http_param_event);
+		}
+
+		if (is_valid(button) && is_valid(event)) {
+			to_ret &= httpd_resp_set_type(p_request, PROTOCOL_ANDROID_CONTROLS_HTTP_CONTENT_TYPE); // Not strictly required.
+			// to_ret &= httpd_resp_set_status(p_request, "200 OK"); // Not strictly required.
+			to_ret &= httpd_resp_send(p_request, NULL, 0);
+		} else {
+			to_ret &= httpd_resp_set_type(p_request, PROTOCOL_ANDROID_CONTROLS_HTTP_CONTENT_TYPE); // Not strictly required.
+			to_ret &= httpd_resp_set_status(p_request, "400 Bad Request");
+			to_ret &= httpd_resp_send(p_request, NULL, 0);
+		}
+	}
+
+	free(str_url);
 	return to_ret;
 }
 

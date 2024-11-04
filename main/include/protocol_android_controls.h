@@ -24,3 +24,6 @@ enum protocol_android_controls_button_event {
 	PROTOCOL_ANDROID_CONTROLS_BUTTON_EVENT_TOTAL_NUMBER_OF_EVENTS,
 
 };
+
+static bool is_valid(enum protocol_android_controls_button_id const button);
+static bool is_valid(enum protocol_android_controls_button_event const event);
