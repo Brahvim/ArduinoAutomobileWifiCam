@@ -5,6 +5,7 @@
 #include <Wire.h>
 #include <Arduino.h>
 
+#include "app.h"
 #include "protocol_car_controls.hpp"
 #include "protocol_android_controls.h"
 
@@ -65,27 +66,27 @@ static char const* wire_status_to_string(uint8_t const p_status) {
 	}
 }
 
-static esp_err_t send_i2c_message(EspCamMessageType const p_command) {
-	static_assert(sizeof(EspCamMessageType) == sizeof(uint8_t), "`EspCamMessageType` is no longer a single byte. *`memcpy()1!1!!`* (Use below code!)");
+static esp_err_t i2c_message_arduino(MessageTypeEspCam const p_command) {
+	static_assert(sizeof(MessageTypeEspCam) == sizeof(uint8_t), "`MessageTypeEspCam` is no longer a single byte. *`memcpy()1!1!!`* (Use below code!)");
 
 	// ...So if it ain't a byte no mo', *use this:*
-	// uint8_t resultMessageTypeData[sizeof(EspCamMessageType)];
+	// uint8_t resultMessageTypeData[sizeof(MessageTypeEspCam)];
 	//
-	// memcpy(resultMessageTypeData, &p_command, sizeof(EspCamMessageType));
+	// memcpy(resultMessageTypeData, &p_command, sizeof(MessageTypeEspCam));
 	// Wire.beginTransmission(I2C_ADDR_ARDUINO);
-	// size_t const bytes_sent = Wire.write(resultMessageTypeData, sizeof(EspCamMessageType));
+	// size_t const bytes_sent = Wire.write(resultMessageTypeData, sizeof(MessageTypeEspCam));
 	// uint8_t const wire_status = Wire.endTransmission();
 
 	Wire.beginTransmission(I2C_ADDR_ARDUINO);
-	size_t const bytes_sent = Wire.write((uint8_t*) &p_command, sizeof(EspCamMessageType));
+	size_t const bytes_sent = Wire.write((uint8_t*) &p_command, sizeof(MessageTypeEspCam));
 	uint8_t const wire_status = Wire.endTransmission();
 
-	if (bytes_sent != sizeof(EspCamMessageType)) {
+	ifu(bytes_sent != sizeof(MessageTypeEspCam)) {
 		ESP_LOGE(TAG, "Arduino `Wire`/I2C transmission didn't send all bytes.");
 		return ESP_FAIL;
 	}
 
-	if (!wire_status) {
+	ifu(!wire_status) {
 		ESP_LOGE(TAG, "Arduino `Wire`/I2C transmission failure: \"%s\".", wire_status_to_string(wire_status));
 		return ESP_FAIL;
 	}
@@ -93,33 +94,84 @@ static esp_err_t send_i2c_message(EspCamMessageType const p_command) {
 	return ESP_OK;
 }
 
-static void update_button_state(enum protocol_android_controls_button_id const p_button, enum protocol_android_controls_button_event const p_event) {
+static esp_err_t button_update_state(enum protocol_android_controls_button_id const p_button, enum protocol_android_controls_button_event const p_event) {
 	s_button_states[p_button] = p_event;
+	return ESP_OK; // Pretty much a useless return, but I'll keep it for now, I guess...
+}
 
+static esp_err_t button_process_press(enum protocol_android_controls_button_id const p_button) {
 	switch (p_button) {
 
 		default: {
-
+			return ESP_FAIL;
 		} break;
 
 		case PROTOCOL_ANDROID_CONTROLS_BUTTON_ID_LEFT: {
-
+			return i2c_message_arduino(MessageTypeEspCam::MOVE_LEFT);
 		} break;
 
 		case PROTOCOL_ANDROID_CONTROLS_BUTTON_ID_RIGHT: {
-
+			return i2c_message_arduino(MessageTypeEspCam::MOVE_RIGHT);
 		} break;
 
 		case PROTOCOL_ANDROID_CONTROLS_BUTTON_ID_FORWARD: {
-
+			return i2c_message_arduino(MessageTypeEspCam::MOVE_FORWARD);
 		} break;
 
 		case PROTOCOL_ANDROID_CONTROLS_BUTTON_ID_BACKWARD: {
-
+			return i2c_message_arduino(MessageTypeEspCam::STOP);
 		} break;
 
 		case PROTOCOL_ANDROID_CONTROLS_BUTTON_ID_EMERGENCY_STOP: {
+			return i2c_message_arduino(MessageTypeEspCam::STOP);
+		} break;
 
+	}
+}
+
+static esp_err_t button_process_release(enum protocol_android_controls_button_id const p_button) {
+	switch (p_button) {
+
+		default: {
+			return ESP_FAIL;
+		} break;
+
+		case PROTOCOL_ANDROID_CONTROLS_BUTTON_ID_LEFT: {
+			return i2c_message_arduino(MessageTypeEspCam::STOP);
+		} break;
+
+		case PROTOCOL_ANDROID_CONTROLS_BUTTON_ID_RIGHT: {
+			return i2c_message_arduino(MessageTypeEspCam::STOP);
+		} break;
+
+		case PROTOCOL_ANDROID_CONTROLS_BUTTON_ID_FORWARD: {
+			return i2c_message_arduino(MessageTypeEspCam::STOP);
+		} break;
+
+		case PROTOCOL_ANDROID_CONTROLS_BUTTON_ID_BACKWARD: {
+			return i2c_message_arduino(MessageTypeEspCam::STOP);
+		} break;
+
+		case PROTOCOL_ANDROID_CONTROLS_BUTTON_ID_EMERGENCY_STOP: {
+			return i2c_message_arduino(MessageTypeEspCam::STOP);
+		} break;
+
+	}
+}
+
+static esp_err_t button_process_events(enum protocol_android_controls_button_id const p_button, enum protocol_android_controls_button_event const p_event) {
+	switch (p_event) {
+
+		default: {
+			return ESP_FAIL;
+		} break;
+
+		case PROTOCOL_ANDROID_CONTROLS_BUTTON_EVENT_PRESSED: {
+			return button_process_press(p_button);
+		} break;
+
+		case PROTOCOL_ANDROID_CONTROLS_BUTTON_EVENT_RELEASED: {
+			return button_process_release(p_button);
 		} break;
 
 	}
@@ -129,7 +181,7 @@ static esp_err_t protocol_android_controls_handler(httpd_req_t *p_request) {
 	size_t str_len = 1 + httpd_req_get_url_query_len(p_request);
 	esp_err_t to_ret = ESP_OK;
 
-	if (str_len < 2) {
+	ifu(str_len < 2) {
 		to_ret &= httpd_resp_set_type(p_request, PROTOCOL_ANDROID_CONTROLS_HTTP_CONTENT_TYPE); // Not strictly required.
 		to_ret &= httpd_resp_set_status(p_request, "400 Bad Request");
 		to_ret &= httpd_resp_send(p_request, NULL, 0);
@@ -140,14 +192,14 @@ static esp_err_t protocol_android_controls_handler(httpd_req_t *p_request) {
 	char* str_url;
 	str_url = (char*) malloc(str_len);
 
-	if (httpd_req_get_url_query_str(p_request, str_url, str_len) == ESP_OK) {
+	ifl(httpd_req_get_url_query_str(p_request, str_url, str_len) == ESP_OK) {
+		char value_http_param_button[sizeof(enum protocol_android_controls_button_id)] = { 0 };
+		char value_http_param_event[sizeof(enum protocol_android_controls_button_event)] = { 0 };
+
 		enum protocol_android_controls_button_id button = PROTOCOL_ANDROID_CONTROLS_BUTTON_ID_NULL;
 		enum protocol_android_controls_button_event event = PROTOCOL_ANDROID_CONTROLS_BUTTON_EVENT_NULL;
 
-		char value_http_param_event[sizeof(enum protocol_android_controls_button_event)];
-		char value_http_param_button[sizeof(enum protocol_android_controls_button_id)];
-
-		if (
+		ifl(
 			httpd_query_key_value(
 				str_url,
 				PROTOCOL_ANDROID_CONTROLS_HTTP_PARAMETER_BUTTON,
@@ -157,7 +209,7 @@ static esp_err_t protocol_android_controls_handler(httpd_req_t *p_request) {
 			button = (enum protocol_android_controls_button_id) atoi(value_http_param_button);
 		}
 
-		if (
+		ifl(
 			httpd_query_key_value(
 				str_url,
 				PROTOCOL_ANDROID_CONTROLS_HTTP_PARAMETER_EVENT,
@@ -167,12 +219,22 @@ static esp_err_t protocol_android_controls_handler(httpd_req_t *p_request) {
 			event = (enum protocol_android_controls_button_event) atoi(value_http_param_event);
 		}
 
-		if (is_valid(button) && is_valid(event)) {
-			to_ret &= httpd_resp_set_type(p_request, PROTOCOL_ANDROID_CONTROLS_HTTP_CONTENT_TYPE); // Not strictly required.
-			// to_ret &= httpd_resp_set_status(p_request, "200 OK"); // Not strictly required.
-			to_ret &= httpd_resp_send(p_request, NULL, 0);
+		to_ret &= httpd_resp_set_type(p_request, PROTOCOL_ANDROID_CONTROLS_HTTP_CONTENT_TYPE); // Not strictly required.
+
+		ifl(is_valid(button) && is_valid(event)) {
+
+			to_ret &= button_update_state(button, event);
+			to_ret &= button_process_events(button, event);
+
+
+			if (to_ret == ESP_FAIL) {
+				to_ret &= httpd_resp_set_status(p_request, "500 Internal Server Error");
+				to_ret &= httpd_resp_send(p_request, NULL, 0);
+			} else {
+				// to_ret &= httpd_resp_set_status(p_request, "200 OK"); // Not strictly required.
+				to_ret &= httpd_resp_send(p_request, NULL, 0);
+			}
 		} else {
-			to_ret &= httpd_resp_set_type(p_request, PROTOCOL_ANDROID_CONTROLS_HTTP_CONTENT_TYPE); // Not strictly required.
 			to_ret &= httpd_resp_set_status(p_request, "400 Bad Request");
 			to_ret &= httpd_resp_send(p_request, NULL, 0);
 		}
