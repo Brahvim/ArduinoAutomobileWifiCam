@@ -4,3 +4,5 @@ cmake_minimum_required(VERSION 3.5)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(camera-web-server)
+
+# add_compile_options(-O3 -Wno-unknown-pragmas)

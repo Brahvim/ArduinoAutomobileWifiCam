@@ -12,7 +12,6 @@
     "idf.port": "/dev/ttyUSB0",
     "idf.pythonBinPath": "/home/brahvim/Documents/Code/WindowsCode/Arduino/Hardware/Espressif/esp-idf/tools/python_env/idf5.1_py3.11_env/bin/python",
     "idf.toolsPath": "/home/brahvim/Documents/Code/WindowsCode/Arduino/Hardware/Espressif/esp-idf/tools",
-    "sonarlint.pathToCompileCommands": "${workspaceFolder}/build/compile_commands.json",
     "cSpell.words": [
         "ARDUHAL",
         "codespell",
@@ -59,6 +58,10 @@
         "{$workspaceFolder}/build/**": true,
         "{$workspaceFolder}/managed_components/**": true,
     },
+    "files.exclude": {
+        "**/managed_components": true,
+        "**/.devcontainer": true,
+    },
     "files.associations": {
         "*.s": "asm-intel-x86-generic",
         "*.asm": "asm-intel-x86-generic",
@@ -72,6 +75,10 @@
         "ostream": "cpp",
         "sstream": "cpp",
         "stop_token": "cpp",
-        "streambuf": "cpp"
-    }
+        "streambuf": "cpp",
+        "soc.h": "c",
+        "dcc_stdio.h": "c",
+        "esp_system.h": "c"
+    },
+    "sonarlint.pathToCompileCommands": "${workspaceFolder}/build/compile_commands.json"
 }

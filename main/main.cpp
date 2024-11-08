@@ -1,5 +1,8 @@
 #include <freertos/FreeRTOS.h>
 #include <esp_camera.h>
+#include <esp_system.h>
+#include <esp_psram.h>
+#include <esp_log.h>
 
 #include <Arduino.h>
 #include <Wire.h>
@@ -14,17 +17,10 @@
 // I also left some comments in some places, I think.
 // I use IDF v5.1.1 - knowing this should help you know exactly what files to obtain from the ECR to diff against mine.
 
-// *Original warning comment:*
-// WARNING!!! PSRAM IC required for UXGA resolution and high JPEG quality
-//            Ensure ESP32 Wrover Module or other board with PSRAM is selected
-//            Partial images will be transmitted if image exceeds buffer size
-//
-//            You must select partition scheme from the board menu that has at least 3MB APP space.
-//            Face Recognition is DISABLED for ESP32 and ESP32-S2, because it takes up from 15
-//            seconds to process single frame. Face Detection is ENABLED if PSRAM is enabled as well
-
 #define CAMERA_MODEL_AI_THINKER // We've got *some* PSRAM! I don't remember how much exactly. Sorry.
 #include "camera_pins.h"
+#include "app_controls.hpp"
+#include "protocol_car_controls.hpp"
 
 const char *ssid = "Tech Creator";
 const char *password = "ThisIsNotSecure";
@@ -80,6 +76,8 @@ extern "C" void app_main() {
 	if (config.pixel_format == PIXFORMAT_JPEG) {
 
 		if (psramFound()) {
+			// ESP_LOGI(__FILE__, "PSRAM size: `%zu` bytes.", esp_psram_get_size());
+
 			config.fb_count = 2;
 			config.jpeg_quality = 10;
 			config.grab_mode = CAMERA_GRAB_LATEST;
@@ -147,7 +145,8 @@ extern "C" void app_main() {
 	Serial.println("");
 	Serial.println("WiFi connected!");
 
-	Wire.begin();
+	// Wire.begin(I2C_PIN_SDA_ESP_CAM, I2C_PIN_SCL_ESP_CAM); // Clamps the frequency to 100KHz in `i2cInit()` down the stack.
+	// Wire.begin(I2C_ADDR_ARDUINO, I2C_PIN_SDA_ESP_CAM, I2C_PIN_SCL_ESP_CAM, 0); // Clamps the frequency in `i2cSlaveInit()` down the stack.
 	Serial.println("I2C begun.");
 
 	startCameraServer();
@@ -155,4 +154,15 @@ extern "C" void app_main() {
 	Serial.print("Camera stream is now available on `http://");
 	Serial.print(WiFi.localIP());
 	Serial.println(":81/stream`. Enjoy!");
+
+	Serial.println("Contacting Arduino...");
+	i2c_message_arduino(NsControls::MessageTypeEspCam::PING);
+
+	NsControls::MessageTypeArduino const message = i2c_await_message_arduino(5000, 1); // ...Give it 5 seconds.
+
+	if (message == NsControls::MessageTypeArduino::PONG) {
+		Serial.println("Received `PONG` from Arduino!");
+	}
+
+	Serial.println("Should've received something from the Arduino by now...");
 }

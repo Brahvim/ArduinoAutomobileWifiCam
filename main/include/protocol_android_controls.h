@@ -1,7 +1,5 @@
 #pragma once
 
-#define ANDROID_HTTP_CONTENT_TYPE             "application/octet-stream"
-
 enum android_control_id {
 
     ANDROID_BUTTON_ID_STEER,
@@ -10,10 +8,10 @@ enum android_control_id {
 
 };
 
-enum android_button_events {
+enum android_button_event {
 
-    PROTOCOL_ANDROID_CONTROLS_BUTTON_EVENT_PRESSED,
-    PROTOCOL_ANDROID_CONTROLS_BUTTON_EVENT_RELEASED,
+    ANDROID_BUTTON_EVENT_PRESSED,
+    ANDROID_BUTTON_EVENT_RELEASED,
 
 };
 
