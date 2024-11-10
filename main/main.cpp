@@ -146,8 +146,12 @@ extern "C" void app_main() {
 	Serial.println("WiFi connected!");
 
 	// Wire.begin(I2C_PIN_SDA_ESP_CAM, I2C_PIN_SCL_ESP_CAM); // Clamps the frequency to 100KHz in `i2cInit()` down the stack.
-	// Wire.begin(I2C_ADDR_ARDUINO, I2C_PIN_SDA_ESP_CAM, I2C_PIN_SCL_ESP_CAM, 0); // Clamps the frequency in `i2cSlaveInit()` down the stack.
-	Serial.println("I2C begun.");
+	// Wire.begin(I2C_ADDR, I2C_PIN_SDA_ESP_CAM, I2C_PIN_SCL_ESP_CAM, 0); // Clamps the frequency in `i2cSlaveInit()` down the stack.
+	// Wire.setClock(100000);
+	// Serial.println("I2C begun.");
+
+	pinMode(14, OUTPUT); analogWrite(14, 0);
+	pinMode(15, OUTPUT); analogWrite(15, 0);
 
 	startCameraServer();
 
@@ -155,14 +159,14 @@ extern "C" void app_main() {
 	Serial.print(WiFi.localIP());
 	Serial.println(":81/stream`. Enjoy!");
 
-	Serial.println("Contacting Arduino...");
-	i2c_message_arduino(NsControls::MessageTypeEspCam::PING);
+	// Serial.println("Contacting Arduino...");
+	// i2c_message_arduino(NsControls::MessageTypeEspCam::PING);
 
-	NsControls::MessageTypeArduino const message = i2c_await_message_arduino(5000, 1); // ...Give it 5 seconds.
+	// NsControls::MessageTypeArduino const message = i2c_await_message_arduino(5000, 1); // ...Give it 5 seconds.
 
-	if (message == NsControls::MessageTypeArduino::PONG) {
-		Serial.println("Received `PONG` from Arduino!");
-	}
+	// if (message == NsControls::MessageTypeArduino::PONG) {
+	// 	Serial.println("Received `PONG` from Arduino!");
+	// }
 
-	Serial.println("Should've received something from the Arduino by now...");
+	// Serial.println("Should've received something from the Arduino by now...");
 }
