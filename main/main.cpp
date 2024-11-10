@@ -1,12 +1,16 @@
-#include <freertos/FreeRTOS.h>
 #include <esp_camera.h>
 #include <esp_system.h>
 #include <esp_psram.h>
 #include <esp_log.h>
 
+#include <freertos/FreeRTOS.h>
+#include <driver/ledc.h>
+
 #include <Arduino.h>
-#include <Wire.h>
 #include <WiFi.h>
+
+#include "app.h"
+#include "protocol_car_controls.hpp"
 
 // **Changed some files from the IDF to get this to build! (see `managed_components/espressif__arduino-esp32`):**
 // - `AP.cpp`					(`managed_components/espressif__arduino-esp32/libraries/WiFi/src/AP.cpp`),
@@ -22,9 +26,10 @@
 #include "app_controls.hpp"
 #include "protocol_car_controls.hpp"
 
-const char *ssid = "Tech Creator";
-const char *password = "ThisIsNotSecure";
-// Do these really get "leaked"? They aren't encryption *keys!*
+const char *TAG = __FILE__;
+const char *ssid = "Tech Creator"; // Don't ask me why it's called this; ask **management**. ***MANAGEMENT!***
+const char *password = "ThisIsNotSecure"; // It indeed isn't, because this is available online. *Though...*
+// ...Do these really get "leaked"? They aren't encryption *keys!* Come on, you won't suddenly be near my phone next year!
 
 extern void startCameraServer();
 // extern void setupLedFlash(int pin);
@@ -32,7 +37,7 @@ extern void startCameraServer();
 extern "C" void app_main() {
 	initArduino();
 
-	Serial.begin(115200);
+	Serial.begin(11'5200);
 	Serial.setDebugOutput(true);
 	Serial.println();
 
@@ -142,31 +147,85 @@ extern "C" void app_main() {
 		Serial.print(".");
 	}
 
-	Serial.println("");
+	Serial.println();
 	Serial.println("WiFi connected!");
 
-	// Wire.begin(I2C_PIN_SDA_ESP_CAM, I2C_PIN_SCL_ESP_CAM); // Clamps the frequency to 100KHz in `i2cInit()` down the stack.
-	// Wire.begin(I2C_ADDR, I2C_PIN_SDA_ESP_CAM, I2C_PIN_SCL_ESP_CAM, 0); // Clamps the frequency in `i2cSlaveInit()` down the stack.
-	// Wire.setClock(100000);
-	// Serial.println("I2C begun.");
+	// Modding these into `INPUT` pins might help the Arduino not pick up on these:
+	// pinMode(PIN_CAR_ESP_CAM_STEER, OUTPUT);
+	pinMode(PIN_CAR_ESP_CAM_1, OUTPUT);
+	pinMode(PIN_CAR_ESP_CAM_2, OUTPUT);
 
-	pinMode(14, OUTPUT); analogWrite(14, 0);
-	pinMode(15, OUTPUT); analogWrite(15, 0);
+	// ledc_timer_config_t const ledc_timer_config_steering = {
+
+	// 	.speed_mode = LEDC_LOW_SPEED_MODE,
+	// 	.duty_resolution = LEDC_TIMER_8_BIT,
+	// 	.timer_num = LEDC_TIMER_1,
+	// 	.freq_hz = 500,
+	// 	.clk_cfg = LEDC_AUTO_CLK,
+
+	// };
+
+	// ledc_channel_config_t const ledc_channel_config_steering = {
+
+	// 	.gpio_num = GPIO_NUM_14,
+	// 	.speed_mode = LEDC_LOW_SPEED_MODE,
+	// 	.channel = LEDC_CHANNEL_1,
+	// 	.intr_type = LEDC_INTR_DISABLE,
+	// 	.timer_sel = LEDC_TIMER_1,
+	// 	.duty = 0,
+	// 	.hpoint = 0
+
+	// };
+
+	// esp_err_t err_ledc_config = ESP_OK;
+
+	// ifu((err_ledc_config = ledc_timer_config(&ledc_timer_config_steering)) != ESP_OK) {
+	// 	ESP_LOGE(TAG, "LEDC Timer 1 config failed, reason: \"%s\".", esp_err_to_name(err_ledc_config));
+	// }
+
+	// ifu((err_ledc_config = ledc_channel_config(&ledc_channel_config_steering)) != ESP_OK) {
+	// 	ESP_LOGE(TAG, "LEDC Channel config failed, reason: \"%s\".", esp_err_to_name(err_ledc_config));
+	// }
+
+	ESP_LOGI(TAG, "LEDC ready!");
 
 	startCameraServer();
 
-	Serial.print("Camera stream is now available on `http://");
-	Serial.print(WiFi.localIP());
-	Serial.println(":81/stream`. Enjoy!");
+	// xTaskCreate([](void *p_task_params) {
+	//
+	// 	while (true) {
+	// 		// if (g_carSteerPreviousValue != g_carSteerNewValue)
+	// 		analogWrite(PIN_CAR_ESP_CAM_STEER, g_carSteerNewValue);
+	//
+	// 		g_carSteerPreviousValue = g_carSteerNewValue;
+	//
+	// 		vTaskDelay(10 / portTICK_PERIOD_MS); // `x / portTICK_PERIOD_MS`, where `x` is a refresh-rate in `ms`.
+	// 	}
+	//
+	// }, "task_pwm", 2048, NULL, 1, NULL);
 
-	// Serial.println("Contacting Arduino...");
-	// i2c_message_arduino(NsControls::MessageTypeEspCam::PING);
+	// Friendly URL logs!
+	class IPAddress const ip = WiFi.localIP();
 
-	// NsControls::MessageTypeArduino const message = i2c_await_message_arduino(5000, 1); // ...Give it 5 seconds.
+	Serial.printf("Camera stream! ...Now available on `http://%s:81/stream`. Enjoy!\n", ip.toString().c_str());
+	Serial.println("Controls also available!:");
 
-	// if (message == NsControls::MessageTypeArduino::PONG) {
-	// 	Serial.println("Received `PONG` from Arduino!");
-	// }
+	Serial.println("- Visit / `curl` to move the car backwards:");
+	Serial.printf("  `http://%s/controls?gear=B`.\n", ip.toString().c_str());
 
-	// Serial.println("Should've received something from the Arduino by now...");
+	Serial.println("- Visit / `curl` to move the car forwards:");
+	Serial.printf("  `http://%s/controls?gear=F`.\n", ip.toString().c_str());
+
+	Serial.println("- Visit / `curl` to stop the car entirely:");
+	Serial.printf("  `http://%s/controls?gear=N`.\n", ip.toString().c_str());
+
+	Serial.println("- Visit / `curl` to steer the car straight:");
+	Serial.printf("  `http://%s/controls?steer=127`.\n", ip.toString().c_str());
+
+	Serial.println("- Visit / `curl` to steer the car right:");
+	Serial.printf("  `http://%s/controls?steer=255`.\n", ip.toString().c_str());
+
+	Serial.println("- Visit / `curl` to steer the car left:");
+	Serial.printf("  `http://%s/controls?steer=0`.\n", ip.toString().c_str());
+
 }

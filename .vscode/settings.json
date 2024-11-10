@@ -9,7 +9,7 @@
     "idf.openOcdConfigs": [
         "board/esp32-wrover-kit-3.3v.cfg"
     ],
-    "idf.port": "/dev/ttyUSB1",
+    "idf.port": "/dev/ttyUSB0",
     "idf.pythonBinPath": "/home/brahvim/Documents/Code/WindowsCode/Arduino/Hardware/Espressif/esp-idf/tools/python_env/idf5.1_py3.11_env/bin/python",
     "idf.toolsPath": "/home/brahvim/Documents/Code/WindowsCode/Arduino/Hardware/Espressif/esp-idf/tools",
     "cSpell.words": [
@@ -19,6 +19,7 @@
         "ffps",
         "gainceiling",
         "hmirror",
+        "hpoint",
         "jchunk",
         "keypoint",
         "keypoints",

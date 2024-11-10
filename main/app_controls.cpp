@@ -1,15 +1,19 @@
 #include <errno.h>
+#include <stdint.h>
 #include <string.h>
 
 #include <esp_log.h>
 #include <esp_mac.h>
 #include <esp32-hal-i2c.h>
 
+#include <driver/ledc.h>
+
+#include <Arduino.h>
+
+#include "app.h"
 #include "app_controls.hpp"
-
-using namespace NsControls;
-
-static char const *TAG = __FILE__;
+#include "protocol_car_controls.hpp"
+#include "protocol_android_controls.hpp"
 
 httpd_uri_t g_uri_controls = {
 
@@ -25,6 +29,12 @@ httpd_uri_t g_uri_controls = {
 #endif
 
 };
+
+int volatile g_carSteerNewValue = 0;
+int volatile g_carSteerPreviousValue = 0;
+
+static char const *TAG = __FILE__;
+static bool s_carModeControls = true;
 
 // HTTP stuff.
 esp_err_t send200(httpd_req_t *p_request) {
@@ -52,15 +62,17 @@ esp_err_t android_controls_handler(httpd_req_t *p_request) {
 	size_t const str_query_len = 1 + httpd_req_get_url_query_len(p_request);
 	httpd_resp_set_type(p_request, "application/octet-stream");
 
+	bool unsuccessful = true;
+
 	ESP_LOGD(TAG, "`/controls` queried!");
 	ESP_LOGD(TAG, "Query length `%zu`!", str_query_len);
 
 	char *str_query = (char*) calloc(str_query_len, sizeof(char));
 
-	if (str_query == NULL) {
+	ifu(str_query == NULL) { // Buffer was never allocated.
 		ESP_LOGE(TAG, "URL parsing failed due to `NULL` return from `malloc()`. 500.");
 		send500(p_request);
-		// No free 👍️
+		// No freeing 👍️!
 		return ESP_OK;
 	}
 
@@ -68,93 +80,169 @@ esp_err_t android_controls_handler(httpd_req_t *p_request) {
 	ifl((err_httpd_last_call = httpd_req_get_url_query_str(p_request, str_query, str_query_len)) != ESP_OK) {
 		ESP_LOGE(TAG, "URL parsing failed! Reason: \"%s\". 500.", esp_err_to_name(err_httpd_last_call));
 		send500(p_request);
-		free(str_query);
 		return ESP_OK;
 	}
 
-	ESP_LOGI(TAG, "Query `%s`.", str_query);
+	ESP_LOGI(TAG, "Query `%s` received! Parsing query...", str_query);
 
 	char const *str_param_name;
+	char param_value_steer[5]; // Needs only `5`, `-`, possibly a three-digit number, `\0`. That's 5 `char`s.
+	char param_value_gear[2]; // Needs only `2`! A `char` and `\0`!
+	char param_value_mode; // Literally empty.
 
-	char param_value_gear[20]; // Actually needs only `2` - digit and `\0`.
-	str_param_name = g_android_controls_http_parameters[ANDROID_CONTROL_GEAR];
-	ifl((err_httpd_last_call = httpd_query_key_value(str_query, str_param_name, param_value_gear, sizeof(param_value_gear))) != ESP_OK) {
-		ESP_LOGE(TAG, "Parameter `%s` not parsed. Reason: \"%s\". 400.", str_param_name, esp_err_to_name(err_httpd_last_call));
+	str_param_name = g_android_controls_http_parameters[ANDROID_CONTROL_STEER];
+	ifl((err_httpd_last_call = httpd_query_key_value(str_query, str_param_name, param_value_steer, sizeof(param_value_steer))) != ESP_OK) { // `400` on error.
+
+		// ESP_LOGW(TAG, "Parameter `%s` not parsed. Reason: \"%s\". 400.", (char*) str_param_name, (char*) esp_err_to_name(err_httpd_last_call));
+		ESP_LOGW(TAG, "Parameter `steer` not parsed. Reason: \"%s\". 400.", (char*) esp_err_to_name(err_httpd_last_call));
 		send400(p_request);
+
 	} else {
+
+		ESP_LOGI(TAG, "Parameter `%s` parsed string `%s`.", g_android_controls_http_parameters[ANDROID_CONTROL_STEER], param_value_steer);
+
 		errno = 0;
 		char *strtol_end;
-		long value = strtol(param_value_gear, &strtol_end, 10);
+		long value = strtol(param_value_steer, &strtol_end, 10);
 
-		ifu(errno == ERANGE) {
+		ifu(value > 255) { // Most frequent mistake!
+
 			ESP_LOGE(TAG, "Parameter `%s` not in range. `400`!", str_param_name);
 			send400(p_request);
 			return ESP_OK;
+
 		}
 
-		ifu(strtol_end == param_value_gear) {
+		ifu(value < 0) { // *Slightly less frequent mistake!*
+
 			ESP_LOGE(TAG, "Parameter `%s` not in range. `400`!", str_param_name);
 			send400(p_request);
 			return ESP_OK;
+
 		}
 
-		switch (value) {
+		ifu(errno == ERANGE) { // Okay, what is this blunder?
+
+			ESP_LOGE(TAG, "Parameter `%s` not in range. `400`!", str_param_name);
+			send400(p_request);
+			return ESP_OK;
+
+		}
+
+		ifu(*strtol_end != '\0') { // You seriously decided that in the name of data you'd send *none?*
+
+			ESP_LOGE(TAG, "Parameter `%s` not in range. `400`!", str_param_name);
+			send400(p_request);
+			return ESP_OK;
+
+		}
+
+		// pinMode(PIN_CAR_ARDUINO_STEER, OUTPUT);
+		analogWrite(PIN_CAR_ESP_CAM_STEER, value);
+		// ledc_set_duty_and_update(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, (value * 255) / 1023, 0);
+		// ledcWrite(GPIO_NUM_14, (value * 255) / 1023);
+		send200(p_request);
+		unsuccessful = false;
+		ESP_LOGI(TAG, "Car should steer towards the *%s* now.", value < 128 ? "left" : "right");
+
+	}
+
+	str_param_name = g_android_controls_http_parameters[ANDROID_CONTROL_GEAR];
+	ifl((err_httpd_last_call = httpd_query_key_value(str_query, str_param_name, param_value_gear, sizeof(param_value_gear))) != ESP_OK) { // `400` on error.
+
+		// ESP_LOGW(TAG, "Parameter `%s` not parsed. Reason: \"%s\". 400.", (char*) str_param_name, (char*) esp_err_to_name(err_httpd_last_call));
+		ESP_LOGW(TAG, "`Parameter `gear` not parsed. Reason: \"%s\" 400.", esp_err_to_name(err_httpd_last_call));
+		send400(p_request);
+
+	} else {
+
+		// ESP_LOGI(TAG, "Parameter `%s` parsed string `%s`.", (char*) g_android_controls_http_parameters[ANDROID_CONTROL_GEAR], (char*) param_value_gear);
+		ESP_LOGI(TAG, "`/controls?gear` parsed successfully.");
+
+		switch (param_value_gear[0]) {
 
 			case ANDROID_GEAR_BACKWARDS: {
 
-				pinMode(15, OUTPUT);
-				analogWrite(15, 0);
+				digitalWrite(PIN_CAR_ESP_CAM_1, LOW);
+				digitalWrite(PIN_CAR_ESP_CAM_2, HIGH);
 				send200(p_request);
+				unsuccessful = false;
+				ESP_LOGI(TAG, "Car should move backwards now.");
 
 			} break;
 
 			case ANDROID_GEAR_FORWARDS: {
 
-				pinMode(15, OUTPUT);
-				analogWrite(15, 1000);
+				digitalWrite(PIN_CAR_ESP_CAM_1, HIGH);
+				digitalWrite(PIN_CAR_ESP_CAM_2, LOW);
 				send200(p_request);
+				unsuccessful = false;
+				ESP_LOGI(TAG, "Car should move forwards now.");
 
 			} break;
 
 			case ANDROID_GEAR_NEUTRAL: {
 
-				pinMode(15, OUTPUT);
-				analogWrite(15, 512);
+				digitalWrite(PIN_CAR_ESP_CAM_1, HIGH);
+				digitalWrite(PIN_CAR_ESP_CAM_2, HIGH);
 				send200(p_request);
+				unsuccessful = false;
+				ESP_LOGI(TAG, "Car should stop now.");
 
 			} break;
 
 			default: { // `400`!
-				ESP_LOGE(TAG, "Parameter `%s` not in range. `400`!", str_param_name);
+
+				// ESP_LOGE(TAG, "Parameter `%s` not in range. `400`!", (char*) str_param_name);
+				ESP_LOGE(TAG, "Parameter `gear` not in range. `400`!");
 				send400(p_request);
 				return ESP_OK;
+
 			} break;
 
 		}
 
 	}
-	str_param_name = g_android_controls_http_parameters[ANDROID_CONTROL_STOP];
-	ifl((err_httpd_last_call = httpd_query_key_value(str_query, str_param_name, NULL, 0)) == ESP_ERR_NOT_FOUND) {
-		ESP_LOGE(TAG, "Parameter `%s` not parsed. Reason: \"%s\". 400.", str_param_name, esp_err_to_name(err_httpd_last_call));
+
+	str_param_name = g_android_controls_http_parameters[ANDROID_CONTROL_MODE];
+	ifl((err_httpd_last_call = httpd_query_key_value(str_query, str_param_name, &param_value_mode, sizeof(param_value_mode))) == ESP_OK) { // `400` if not found.
+
+		ESP_LOGI(TAG, "Car should be changing modes...");
+
+		if (s_carModeControls) {
+
+			digitalWrite(PIN_CAR_ESP_CAM_1, LOW);
+			digitalWrite(PIN_CAR_ESP_CAM_2, LOW);
+			send200(p_request);
+
+			unsuccessful = false;
+			s_carModeControls = false;
+			ESP_LOGI(TAG, "Car should avoid obstacles now.");
+
+		} else {
+
+			digitalWrite(PIN_CAR_ESP_CAM_1, HIGH);
+			digitalWrite(PIN_CAR_ESP_CAM_2, LOW);
+			send200(p_request);
+
+			unsuccessful = false;
+			s_carModeControls = true;
+			ESP_LOGI(TAG, "Car should listen to controls now.");
+
+		}
+
+	} else { // `400`.
+
+		// ESP_LOGW(TAG, "Parameter `mode` not parsed. Reason: \"%s\". 400.", (char*) esp_err_to_name(err_httpd_last_call));
+		ESP_LOGW(TAG, "Parameter `mode` not parsed. Reason: \"%s\". 400.", esp_err_to_name(err_httpd_last_call));
 		send400(p_request);
-	} else {
+
 	}
 
-	char param_value_steer[20]; // Needs only `5`, `-`, three-digit number, `\0`. That's 5 `char`s.
-	str_param_name = g_android_controls_http_parameters[ANDROID_CONTROL_STEER];
-	ifl((err_httpd_last_call = httpd_query_key_value(str_query, str_param_name, param_value_steer, sizeof(param_value_steer))) != ESP_OK) {
-		ESP_LOGE(TAG, "Parameter `%s` not parsed. Reason: \"%s\". 400.", str_param_name, esp_err_to_name(err_httpd_last_call));
+	ifu(unsuccessful) {
+		ESP_LOGE(TAG, "`/controls` handler exited. Nothing to do!...");
 		send400(p_request);
-	} else {
-
 	}
 
-	// ESP_LOGD(TAG, "`/controls` query OK! Checking parsed data...");
-	// ESP_LOGI(TAG, "Parameter `%s` parsed string `%s`.", g_android_controls_http_parameters[ANDROID_CONTROL_GEAR], param_value_gear);
-	// ESP_LOGI(TAG, "Parameter `%s` parsed string `%s`.", g_android_controls_http_parameters[ANDROID_CONTROL_STOP], param_value_stop);
-	// ESP_LOGI(TAG, "Parameter `%s` parsed string `%s`.", g_android_controls_http_parameters[ANDROID_CONTROL_STEER], param_value_steer);
-	// ESP_LOGD(TAG, "`/controls` handler exited. Nothing to do!...");
-
-	free(str_query);
 	return ESP_OK;
 }
