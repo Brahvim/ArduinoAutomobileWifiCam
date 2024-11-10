@@ -9,7 +9,7 @@
     "idf.openOcdConfigs": [
         "board/esp32-wrover-kit-3.3v.cfg"
     ],
-    "idf.port": "/dev/ttyUSB0",
+    "idf.port": "/dev/ttyUSB1",
     "idf.pythonBinPath": "/home/brahvim/Documents/Code/WindowsCode/Arduino/Hardware/Espressif/esp-idf/tools/python_env/idf5.1_py3.11_env/bin/python",
     "idf.toolsPath": "/home/brahvim/Documents/Code/WindowsCode/Arduino/Hardware/Espressif/esp-idf/tools",
     "cSpell.words": [
@@ -78,7 +78,16 @@
         "streambuf": "cpp",
         "soc.h": "c",
         "dcc_stdio.h": "c",
-        "esp_system.h": "c"
+        "esp_system.h": "c",
+        "optional": "cpp",
+        "ratio": "cpp",
+        "system_error": "cpp",
+        "array": "cpp",
+        "functional": "cpp",
+        "regex": "cpp",
+        "tuple": "cpp",
+        "type_traits": "cpp",
+        "utility": "cpp"
     },
     "sonarlint.pathToCompileCommands": "${workspaceFolder}/build/compile_commands.json"
 }
