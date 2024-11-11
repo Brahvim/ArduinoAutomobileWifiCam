@@ -85,7 +85,8 @@ extern "C" void app_main() {
 
 			config.fb_count = 2;
 			config.jpeg_quality = 10;
-			config.grab_mode = CAMERA_GRAB_LATEST;
+			// config.grab_mode = CAMERA_GRAB_LATEST;
+			config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
 		} else {
 			// No PSRAM :(
 			config.frame_size = FRAMESIZE_SVGA;
@@ -155,77 +156,31 @@ extern "C" void app_main() {
 	pinMode(PIN_CAR_ESP_CAM_1, OUTPUT);
 	pinMode(PIN_CAR_ESP_CAM_2, OUTPUT);
 
-	// ledc_timer_config_t const ledc_timer_config_steering = {
-
-	// 	.speed_mode = LEDC_LOW_SPEED_MODE,
-	// 	.duty_resolution = LEDC_TIMER_8_BIT,
-	// 	.timer_num = LEDC_TIMER_1,
-	// 	.freq_hz = 500,
-	// 	.clk_cfg = LEDC_AUTO_CLK,
-
-	// };
-
-	// ledc_channel_config_t const ledc_channel_config_steering = {
-
-	// 	.gpio_num = GPIO_NUM_14,
-	// 	.speed_mode = LEDC_LOW_SPEED_MODE,
-	// 	.channel = LEDC_CHANNEL_1,
-	// 	.intr_type = LEDC_INTR_DISABLE,
-	// 	.timer_sel = LEDC_TIMER_1,
-	// 	.duty = 0,
-	// 	.hpoint = 0
-
-	// };
-
-	// esp_err_t err_ledc_config = ESP_OK;
-
-	// ifu((err_ledc_config = ledc_timer_config(&ledc_timer_config_steering)) != ESP_OK) {
-	// 	ESP_LOGE(TAG, "LEDC Timer 1 config failed, reason: \"%s\".", esp_err_to_name(err_ledc_config));
-	// }
-
-	// ifu((err_ledc_config = ledc_channel_config(&ledc_channel_config_steering)) != ESP_OK) {
-	// 	ESP_LOGE(TAG, "LEDC Channel config failed, reason: \"%s\".", esp_err_to_name(err_ledc_config));
-	// }
-
-	ESP_LOGI(TAG, "LEDC ready!");
-
 	startCameraServer();
 
-	// xTaskCreate([](void *p_task_params) {
-	//
-	// 	while (true) {
-	// 		// if (g_carSteerPreviousValue != g_carSteerNewValue)
-	// 		analogWrite(PIN_CAR_ESP_CAM_STEER, g_carSteerNewValue);
-	//
-	// 		g_carSteerPreviousValue = g_carSteerNewValue;
-	//
-	// 		vTaskDelay(10 / portTICK_PERIOD_MS); // `x / portTICK_PERIOD_MS`, where `x` is a refresh-rate in `ms`.
-	// 	}
-	//
-	// }, "task_pwm", 2048, NULL, 1, NULL);
-
 	// Friendly URL logs!
-	class IPAddress const ip = WiFi.localIP();
 
-	Serial.printf("Camera stream! ...Now available on `http://%s:81/stream`. Enjoy!\n", ip.toString().c_str());
+	auto const ipAddr = WiFi.localIP();
+	const char *ipStr = ipAddr.toString(true).c_str(); // Doesn't print the IP address :/
+
+	Serial.printf("Camera stream! ...Now available on `http://%s:81/stream`. Enjoy!\n", ipStr);
 	Serial.println("Controls also available!:");
 
 	Serial.println("- Visit / `curl` to move the car backwards:");
-	Serial.printf("  `http://%s/controls?gear=B`.\n", ip.toString().c_str());
+	Serial.printf("  `http://%s/controls?gear=B`.\n", ipStr);
 
 	Serial.println("- Visit / `curl` to move the car forwards:");
-	Serial.printf("  `http://%s/controls?gear=F`.\n", ip.toString().c_str());
+	Serial.printf("  `http://%s/controls?gear=F`.\n", ipStr);
 
 	Serial.println("- Visit / `curl` to stop the car entirely:");
-	Serial.printf("  `http://%s/controls?gear=N`.\n", ip.toString().c_str());
+	Serial.printf("  `http://%s/controls?gear=N`.\n", ipStr);
 
 	Serial.println("- Visit / `curl` to steer the car straight:");
-	Serial.printf("  `http://%s/controls?steer=127`.\n", ip.toString().c_str());
+	Serial.printf("  `http://%s/controls?steer=127`.\n", ipStr);
 
 	Serial.println("- Visit / `curl` to steer the car right:");
-	Serial.printf("  `http://%s/controls?steer=255`.\n", ip.toString().c_str());
+	Serial.printf("  `http://%s/controls?steer=255`.\n", ipStr);
 
 	Serial.println("- Visit / `curl` to steer the car left:");
-	Serial.printf("  `http://%s/controls?steer=0`.\n", ip.toString().c_str());
-
+	Serial.printf("  `http://%s/controls?steer=0`.\n", ipStr);
 }
