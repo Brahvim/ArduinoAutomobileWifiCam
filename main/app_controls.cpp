@@ -142,7 +142,7 @@ esp_err_t android_controls_handler(httpd_req_t *p_request) {
 		}
 
 		// pinMode(PIN_CAR_ARDUINO_STEER, OUTPUT);
-		analogWrite(PIN_CAR_ESP_CAM_STEER, value);
+		analogWrite(CAR_PIN_ANALOG_ESP_CAM_STEER, value);
 		send200(p_request);
 		ESP_LOGI(TAG, "Car should steer towards the *%s* now.", value < 128 ? "left" : "right");
 		return ESP_OK;
@@ -165,8 +165,8 @@ esp_err_t android_controls_handler(httpd_req_t *p_request) {
 
 			case ANDROID_GEAR_BACKWARDS: {
 
-				digitalWrite(PIN_CAR_ESP_CAM_1, LOW);
-				digitalWrite(PIN_CAR_ESP_CAM_2, HIGH);
+				digitalWrite(CAR_PIN_DIGITAL_ESP_CAM_1, LOW);
+				digitalWrite(CAR_PIN_DIGITAL_ESP_CAM_2, HIGH);
 				send200(p_request);
 				ESP_LOGI(TAG, "Car should move backwards now.");
 				return ESP_OK;
@@ -175,8 +175,8 @@ esp_err_t android_controls_handler(httpd_req_t *p_request) {
 
 			case ANDROID_GEAR_FORWARDS: {
 
-				digitalWrite(PIN_CAR_ESP_CAM_1, HIGH);
-				digitalWrite(PIN_CAR_ESP_CAM_2, LOW);
+				digitalWrite(CAR_PIN_DIGITAL_ESP_CAM_1, HIGH);
+				digitalWrite(CAR_PIN_DIGITAL_ESP_CAM_2, LOW);
 				send200(p_request);
 				ESP_LOGI(TAG, "Car should move forwards now.");
 				return ESP_OK;
@@ -185,8 +185,8 @@ esp_err_t android_controls_handler(httpd_req_t *p_request) {
 
 			case ANDROID_GEAR_NEUTRAL: {
 
-				digitalWrite(PIN_CAR_ESP_CAM_1, HIGH);
-				digitalWrite(PIN_CAR_ESP_CAM_2, HIGH);
+				digitalWrite(CAR_PIN_DIGITAL_ESP_CAM_1, HIGH);
+				digitalWrite(CAR_PIN_DIGITAL_ESP_CAM_2, HIGH);
 				send200(p_request);
 				ESP_LOGI(TAG, "Car should stop now.");
 				return ESP_OK;
@@ -212,8 +212,8 @@ esp_err_t android_controls_handler(httpd_req_t *p_request) {
 
 		if (s_carModeControls) {
 
-			digitalWrite(PIN_CAR_ESP_CAM_1, LOW);
-			digitalWrite(PIN_CAR_ESP_CAM_2, LOW);
+			digitalWrite(CAR_PIN_DIGITAL_ESP_CAM_1, LOW);
+			digitalWrite(CAR_PIN_DIGITAL_ESP_CAM_2, LOW);
 			send200(p_request);
 
 			s_carModeControls = false;
@@ -222,8 +222,8 @@ esp_err_t android_controls_handler(httpd_req_t *p_request) {
 
 		} else {
 
-			digitalWrite(PIN_CAR_ESP_CAM_1, HIGH);
-			digitalWrite(PIN_CAR_ESP_CAM_2, LOW);
+			digitalWrite(CAR_PIN_DIGITAL_ESP_CAM_1, HIGH);
+			digitalWrite(CAR_PIN_DIGITAL_ESP_CAM_2, LOW);
 			send200(p_request);
 
 			s_carModeControls = true;

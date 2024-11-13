@@ -152,9 +152,9 @@ extern "C" void app_main() {
 	Serial.println("WiFi connected!");
 
 	// Modding these into `INPUT` pins might help the Arduino not pick up on these:
-	// pinMode(PIN_CAR_ESP_CAM_STEER, OUTPUT);
-	pinMode(PIN_CAR_ESP_CAM_1, OUTPUT);
-	pinMode(PIN_CAR_ESP_CAM_2, OUTPUT);
+	// pinMode(CAR_PIN_DIGITAL_ESP_CAM_STEER, OUTPUT);
+	pinMode(CAR_PIN_DIGITAL_ESP_CAM_1, OUTPUT);
+	pinMode(CAR_PIN_DIGITAL_ESP_CAM_2, OUTPUT);
 
 	startCameraServer();
 
