@@ -1,16 +1,18 @@
+#include <esp_chip_info.h>
+#include <esp_heap_caps.h>
 #include <esp_camera.h>
 #include <esp_system.h>
 #include <esp_psram.h>
+#include <esp_wifi.h>
 #include <esp_log.h>
 
+#include <freertos/event_groups.h>
 #include <freertos/FreeRTOS.h>
 #include <driver/ledc.h>
+#include <nvs_flash.h>
 
-#include <Arduino.h>
-#include <WiFi.h>
-
-#include "app.h"
 #include "protocol_car_controls.hpp"
+#include "app.h"
 
 // **Changed some files from the IDF to get this to build! (see `managed_components/espressif__arduino-esp32`):**
 // - `AP.cpp`					(`managed_components/espressif__arduino-esp32/libraries/WiFi/src/AP.cpp`),
@@ -31,85 +33,197 @@ const char *ssid = "Tech Creator"; // Don't ask me why it's called this; ask **m
 const char *password = "ThisIsNotSecure"; // It indeed isn't, because this is available online. *Though...*
 // ...Do these really get "leaked"? They aren't encryption *keys!* Come on, you won't suddenly be near my phone next year!
 
+#define WIFI_CONNECTED_BIT BIT0
+
+EventGroupHandle_t g_wifi_event_group;
+
 extern void startCameraServer();
 // extern void setupLedFlash(int pin);
 
-extern "C" void app_main() {
-	initArduino();
+void event_handler_wifi(void *p_param, esp_event_base_t p_event_base, int32_t p_event_id, void *p_event_data) {
+	if (p_event_base == WIFI_EVENT) {
 
-	Serial.begin(11'5200);
-	Serial.setDebugOutput(true);
-	Serial.println();
+		switch (p_event_id) {
 
-	camera_config_t config;
+			case WIFI_EVENT_STA_DISCONNECTED: {
 
-	config.fb_count = 1;
-	config.jpeg_quality = 12;
+				ESP_LOGI(TAG, "Wi-Fi disconnection event occurred...");
+				esp_wifi_connect();
 
-	config.pin_d0 = Y2_GPIO_NUM;
-	config.pin_d1 = Y3_GPIO_NUM;
-	config.pin_d2 = Y4_GPIO_NUM;
-	config.pin_d3 = Y5_GPIO_NUM;
-	config.pin_d4 = Y6_GPIO_NUM;
-	config.pin_d5 = Y7_GPIO_NUM;
-	config.pin_d6 = Y8_GPIO_NUM;
-	config.pin_d7 = Y9_GPIO_NUM;
+			} break;
 
-	config.pin_pclk = PCLK_GPIO_NUM;
-	config.pin_xclk = XCLK_GPIO_NUM;
+			case WIFI_EVENT_STA_CONNECTED: {
 
-	config.pin_href = HREF_GPIO_NUM;
-	config.pin_pwdn = PWDN_GPIO_NUM;
-	config.pin_reset = RESET_GPIO_NUM;
-	config.pin_vsync = VSYNC_GPIO_NUM;
+				ESP_LOGI(TAG, "Wi-Fi connection event occurred...");
+				esp_wifi_connect();
 
-	config.pin_sccb_scl = SIOC_GPIO_NUM;
-	config.pin_sccb_sda = SIOD_GPIO_NUM;
+			} break;
 
-	config.ledc_timer = LEDC_TIMER_0;
-	config.ledc_channel = LEDC_CHANNEL_0;
+			case WIFI_EVENT_STA_START: {
 
-	config.xclk_freq_hz = 20000000;
-	config.frame_size = FRAMESIZE_UXGA;
-	config.pixel_format = PIXFORMAT_JPEG; // JPEG for streaming. Use `PIXFORMAT_RGB565` for best face detection and recognition.
+				ESP_LOGI(TAG, "Wi-Fi start event occurred...");
+				esp_wifi_connect();
 
-	config.fb_location = CAMERA_FB_IN_PSRAM;
-	config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+			} break;
 
-	// If we have PSRAM, go with a UXGA resolution instead. Also, higher JPEG quality!
-	// Why? Because now we *can* have a *larger* pre-allocated frame buffer.
-	if (config.pixel_format == PIXFORMAT_JPEG) {
-
-		if (psramFound()) {
-			// ESP_LOGI(__FILE__, "PSRAM size: `%zu` bytes.", esp_psram_get_size());
-
-			config.fb_count = 2;
-			config.jpeg_quality = 10;
-			// config.grab_mode = CAMERA_GRAB_LATEST;
-			config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
-		} else {
-			// No PSRAM :(
-			config.frame_size = FRAMESIZE_SVGA;
-			config.fb_location = CAMERA_FB_IN_DRAM;
 		}
 
-	} else {
-		// Best option for face detection and recognition:
-		config.frame_size = FRAMESIZE_240X240;
-#if CONFIG_IDF_TARGET_ESP32S3 // This chip has enough DRAM for two frames!
-		config.fb_count = 2;
-#endif
-	}
+	} else if (p_event_base == IP_EVENT) {
 
-#if defined(CAMERA_MODEL_ESP_EYE) // Pins `13` and `14` are `INPUT_PULLUP` pins...
-	pinMode(13, INPUT_PULLUP);
-	pinMode(14, INPUT_PULLUP);
-#endif
+		switch (p_event_id) {
+
+			case IP_EVENT_ETH_GOT_IP: {
+
+				ESP_LOGI(TAG, "IP ethernet \"Got IP\" event occurred...");
+				esp_wifi_connect();
+
+			} break;
+
+			case IP_EVENT_STA_GOT_IP: {
+
+				// ip_event_got_ip_t const *event_got_ip = (ip_event_got_ip_t*) p_event_data;
+				// auto ip = event_got_ip->ip_info.ip;
+				// ESP_LOGI(TAG, "ESP32-CAM IP address is now `" IPSTR "`.", IP2STR(ip));
+
+				for (size_t i = 0; i < 25; ++i) {
+					ESP_LOGI(TAG, "Connected!");
+				}
+
+				startCameraServer();
+
+				// Friendly URL logs!
+
+				// ESP_LOGI(TAG, "Camera stream! ...Now available on `http://%s:81/stream`. Enjoy!\n", ipStr);
+				// ESP_LOGI(TAG, "Controls also available!:");
+
+				// ESP_LOGI(TAG, "- Visit / `curl` to move the car backwards:");
+				// ESP_LOGI(TAG, "  `http://%s/controls?gear=B`.\n", ipStr);
+
+				// ESP_LOGI(TAG, "- Visit / `curl` to move the car forwards:");
+				// ESP_LOGI(TAG, "  `http://%s/controls?gear=F`.\n", ipStr);
+
+				// ESP_LOGI(TAG, "- Visit / `curl` to stop the car entirely:");
+				// ESP_LOGI(TAG, "  `http://%s/controls?gear=N`.\n", ipStr);
+
+				// ESP_LOGI(TAG, "- Visit / `curl` to steer the car straight:");
+				// ESP_LOGI(TAG, "  `http://%s/controls?steer=127`.\n", ipStr);
+
+				// ESP_LOGI(TAG, "- Visit / `curl` to steer the car right:");
+				// ESP_LOGI(TAG, "  `http://%s/controls?steer=255`.\n", ipStr);
+
+				// ESP_LOGI(TAG, "- Visit / `curl` to steer the car left:");
+				// ESP_LOGI(TAG, "  `http://%s/controls?steer=0`.\n", ipStr);
+
+			} break;
+
+			default: {
+
+				ESP_LOGI(TAG, "IP event `%ld` occurred!", p_event_id);
+
+			} break;
+
+		}
+
+	}
+}
+
+void wifi_init_sta() {
+	g_wifi_event_group = xEventGroupCreate();
+
+	ESP_ERROR_CHECK(esp_event_loop_create_default());
+	ESP_ERROR_CHECK(esp_netif_init());
+
+	esp_netif_create_default_wifi_sta();
+
+	wifi_init_config_t config_wifi_init = WIFI_INIT_CONFIG_DEFAULT();
+	ESP_ERROR_CHECK(esp_wifi_init(&config_wifi_init));
+
+	ESP_ERROR_CHECK(esp_event_handler_instance_register(
+		WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler_wifi, NULL, NULL
+	));
+
+	ESP_ERROR_CHECK(esp_event_handler_instance_register(
+		// IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler_wifi, NULL, NULL
+		IP_EVENT, ESP_EVENT_ANY_ID, &event_handler_wifi, NULL, NULL
+	));
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+	wifi_config_t config_wifi = {
+
+		// .ap = NULL,
+
+		.sta = {
+
+			.ssid = "Tech Creator",
+			.password = "ThisIsNotSecure",
+
+		},
+
+		// .nan = NULL,
+
+	};
+#pragma GCC diagnostic pop
+
+	ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &config_wifi));
+	ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+	ESP_ERROR_CHECK(esp_wifi_start());
+	ESP_LOGI(TAG, "WiFi started.");
+}
+
+extern "C" void app_main() {
+
+	// esp_chip_info_t chip_info;
+	// esp_chip_info(&chip_info);
+
+	// ESP_LOGI("Chip Info", "Cores: %d", chip_info.cores);
+	// ESP_LOGI("Chip Info", "Chip model: %d", chip_info.model);
+	// ESP_LOGI("Chip Info", "Revision: %d", chip_info.revision);
+	// ESP_LOGI("Chip Info", "WiFi capabilities: %lu", chip_info.features);
+
+	// ESP_ERROR_CHECK(esp_psram_init()); // Results in an `ESP_ERR_INVALID_STATE`, because... PSRAM was init'ed *already?!*
+	ESP_ERROR_CHECK(nvs_flash_init());
+
+	ESP_LOGI(TAG, "PSRAM size? `%zu` bytes!", esp_psram_get_size());
+	// ESP_LOGI(TAG, "PSRAM? %s", esp_psram_is_initialized() ? "Yep!" : "Nope...");
+
+	camera_config_t config_camera;
+
+	config_camera.pin_d0 = Y2_GPIO_NUM;
+	config_camera.pin_d1 = Y3_GPIO_NUM;
+	config_camera.pin_d2 = Y4_GPIO_NUM;
+	config_camera.pin_d3 = Y5_GPIO_NUM;
+	config_camera.pin_d4 = Y6_GPIO_NUM;
+	config_camera.pin_d5 = Y7_GPIO_NUM;
+	config_camera.pin_d6 = Y8_GPIO_NUM;
+	config_camera.pin_d7 = Y9_GPIO_NUM;
+
+	config_camera.pin_pclk = PCLK_GPIO_NUM;
+	config_camera.pin_xclk = XCLK_GPIO_NUM;
+
+	config_camera.pin_href = HREF_GPIO_NUM;
+	config_camera.pin_pwdn = PWDN_GPIO_NUM;
+	config_camera.pin_reset = RESET_GPIO_NUM;
+	config_camera.pin_vsync = VSYNC_GPIO_NUM;
+
+	config_camera.pin_sccb_scl = SIOC_GPIO_NUM;
+	config_camera.pin_sccb_sda = SIOD_GPIO_NUM;
+
+	config_camera.xclk_freq_hz = 20000000;
+	config_camera.ledc_timer = LEDC_TIMER_0;
+	config_camera.ledc_channel = LEDC_CHANNEL_0;
+
+	config_camera.fb_count = 2;
+	config_camera.jpeg_quality = 12;
+	config_camera.frame_size = FRAMESIZE_SVGA;
+	config_camera.pixel_format = PIXFORMAT_JPEG; // JPEG for streaming. Use `PIXFORMAT_RGB565` for best face detection and recognition.
+	config_camera.fb_location = CAMERA_FB_IN_PSRAM;
+	config_camera.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
 
 	// This variable is not reused after this *one* check:
-	esp_err_t const err = esp_camera_init(&config);
+	esp_err_t const err = esp_camera_init(&config_camera);
 	if (err != ESP_OK) {
-		Serial.printf("Camera init failed with error 0x%x", err);
+		ESP_LOGE(TAG, "Camera init failed with error %s", esp_err_to_name(err));
 		return;
 	}
 
@@ -122,65 +236,20 @@ extern "C" void app_main() {
 	}
 
 	// Drop down the frame-size for a higher *initial frame-rate:*
-	if (config.pixel_format == PIXFORMAT_JPEG) {
+	if (config_camera.pixel_format == PIXFORMAT_JPEG) {
 		sensor->set_framesize(sensor, FRAMESIZE_QVGA);
 	}
-
-#if defined(CAMERA_MODEL_M5STACK_WIDE) || defined(CAMERA_MODEL_M5STACK_ESP32CAM)
-	sensor->set_vflip(sensor, 1);
-	sensor->set_hmirror(sensor, 1);
-#endif
-
-#if defined(CAMERA_MODEL_ESP32S3_EYE)
-	sensor->set_vflip(sensor, 1);
-#endif
 
 	// Setup LED FLash if LED pin is defined in camera_pins.h
 #if defined(LED_GPIO_NUM)
 	// setupLedFlash(LED_GPIO_NUM);
 #endif
 
-	WiFi.begin(ssid, password);
-	WiFi.setSleep(false);
-
-	while (WiFi.status() != WL_CONNECTED) {
-		delay(500);
-		Serial.print(".");
-	}
-
-	Serial.println();
-	Serial.println("WiFi connected!");
-
 	// Modding these into `INPUT` pins might help the Arduino not pick up on these:
 	// pinMode(CAR_PIN_DIGITAL_ESP_CAM_STEER, OUTPUT);
-	pinMode(CAR_PIN_DIGITAL_ESP_CAM_1, OUTPUT);
-	pinMode(CAR_PIN_DIGITAL_ESP_CAM_2, OUTPUT);
+	// pinMode(CAR_PIN_DIGITAL_ESP_CAM_1, OUTPUT);
+	// pinMode(CAR_PIN_DIGITAL_ESP_CAM_2, OUTPUT);
 
-	startCameraServer();
-
-	// Friendly URL logs!
-
-	auto const ipAddr = WiFi.localIP();
-	const char *ipStr = ipAddr.toString(true).c_str(); // Doesn't print the IP address :/
-
-	Serial.printf("Camera stream! ...Now available on `http://%s:81/stream`. Enjoy!\n", ipStr);
-	Serial.println("Controls also available!:");
-
-	Serial.println("- Visit / `curl` to move the car backwards:");
-	Serial.printf("  `http://%s/controls?gear=B`.\n", ipStr);
-
-	Serial.println("- Visit / `curl` to move the car forwards:");
-	Serial.printf("  `http://%s/controls?gear=F`.\n", ipStr);
-
-	Serial.println("- Visit / `curl` to stop the car entirely:");
-	Serial.printf("  `http://%s/controls?gear=N`.\n", ipStr);
-
-	Serial.println("- Visit / `curl` to steer the car straight:");
-	Serial.printf("  `http://%s/controls?steer=127`.\n", ipStr);
-
-	Serial.println("- Visit / `curl` to steer the car right:");
-	Serial.printf("  `http://%s/controls?steer=255`.\n", ipStr);
-
-	Serial.println("- Visit / `curl` to steer the car left:");
-	Serial.printf("  `http://%s/controls?steer=0`.\n", ipStr);
+	wifi_init_sta();
+	// ESP_LOGI(TAG, "Left RAM: `%lu` bytes.", esp_get_free_heap_size());
 }

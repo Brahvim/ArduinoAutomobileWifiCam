@@ -29,7 +29,9 @@
         "LOGD",
         "LOGI",
         "LOGW",
+        "lums",
         "MJPG",
+        "netif",
         "obuf",
         "offx",
         "offy",
@@ -48,6 +50,7 @@
         "vflip",
         "vsync",
         "whitebal",
+        "Wmissing",
         "Wrover",
         "Wstrict",
         "xclk",
@@ -88,7 +91,8 @@
         "regex": "cpp",
         "tuple": "cpp",
         "type_traits": "cpp",
-        "utility": "cpp"
+        "utility": "cpp",
+        "esp_attr.h": "c"
     },
     "sonarlint.pathToCompileCommands": "${workspaceFolder}/build/compile_commands.json"
 }
