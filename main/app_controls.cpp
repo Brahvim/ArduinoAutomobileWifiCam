@@ -3,11 +3,9 @@
 #include <string.h>
 
 #include <esp_log.h>
-#include <esp_mac.h>
-
-#include <esp_adc/adc_oneshot.h>
 
 #include <driver/ledc.h>
+#include <esp_adc/adc_oneshot.h>
 
 #include "app.h"
 #include "app_controls.hpp"
