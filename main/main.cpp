@@ -1,37 +1,18 @@
-#include <esp_chip_info.h>
-#include <esp_heap_caps.h>
 #include <esp_camera.h>
-#include <esp_system.h>
-#include <esp_psram.h>
 #include <esp_wifi.h>
 #include <esp_log.h>
 
-#include <freertos/event_groups.h>
-#include <freertos/FreeRTOS.h>
-#include <driver/ledc.h>
 #include <nvs_flash.h>
 
 #include "protocol_car_controls.hpp"
-#include "app_controls.hpp"
+#include "app_http_endpoints.h"
 #include "app.h"
-
-// **Changed some files from the IDF to get this to build! (see `managed_components/espressif__arduino-esp32`):**
-// - `AP.cpp`					(`managed_components/espressif__arduino-esp32/libraries/WiFi/src/AP.cpp`),
-// - `STA.cpp`					(`managed_components/espressif__arduino-esp32/libraries/WiFi/src/STA.cpp`),
-// - `WiFiGeneric.cpp`			(`managed_components/espressif__arduino-esp32/libraries/WiFi/src/WiFiGeneric.cpp`),
-// - `chip-debug-report.cpp`	(`managed_components/espressif__arduino-esp32/cores/esp32/chip-debug-report.h`).
-// Try diffing them with the "originals" you can obtain from the ESP Component Registry of the ESP-IDF extension.
-// I also left some comments in some places, I think.
-// I use IDF v5.1.1 - knowing this should help you know exactly what files to obtain from the ECR to diff against mine.
-
-const char *TAG = __FILE__;
 
 #define WIFI_CONNECTED_BIT BIT0
 
 EventGroupHandle_t g_wifi_event_group;
 
-extern void startCameraServer();
-// extern void setupLedFlash(int pin);
+static const char *TAG = __FILE__;
 
 void event_handler_wifi(void *p_param, esp_event_base_t p_event_base, int32_t p_event_id, void *p_event_data) {
 	if (p_event_base == WIFI_EVENT) {
@@ -82,7 +63,7 @@ void event_handler_wifi(void *p_param, esp_event_base_t p_event_base, int32_t p_
 					ESP_LOGI(TAG, "Connected!");
 				}
 
-				startCameraServer();
+				start_camera_server();
 
 				// Friendly URL logs!
 
@@ -118,6 +99,58 @@ void event_handler_wifi(void *p_param, esp_event_base_t p_event_base, int32_t p_
 		}
 
 	}
+}
+
+extern "C" void app_main() {
+	ESP_ERROR_CHECK(nvs_flash_init());
+
+	camera_config_t config_camera;
+
+	config_camera.pin_d0 = 5;
+	config_camera.pin_d1 = 18;
+	config_camera.pin_d2 = 19;
+	config_camera.pin_d3 = 21;
+	config_camera.pin_d4 = 36;
+	config_camera.pin_d5 = 39;
+	config_camera.pin_d6 = 34;
+	config_camera.pin_d7 = 35;
+
+	config_camera.pin_xclk = 0;
+	config_camera.pin_pclk = 22;
+
+	config_camera.pin_href = 23;
+	config_camera.pin_pwdn = 32;
+	config_camera.pin_reset = -1;
+	config_camera.pin_vsync = 25;
+
+	config_camera.pin_sccb_scl = 27;
+	config_camera.pin_sccb_sda = 26;
+
+	config_camera.xclk_freq_hz = 20000000;
+	config_camera.ledc_timer = LEDC_TIMER_0;
+	config_camera.ledc_channel = LEDC_CHANNEL_0;
+
+	config_camera.fb_count = 1;
+	config_camera.jpeg_quality = 63;
+	config_camera.frame_size = FRAMESIZE_VGA;
+	config_camera.pixel_format = PIXFORMAT_JPEG; // `PIXFORMAT_JPEG` for streaming. `PIXFORMAT_RGB565` for face detection and recognition!
+	config_camera.fb_location = CAMERA_FB_IN_PSRAM;
+	config_camera.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+
+	ESP_ERROR_CHECK(esp_camera_init(&config_camera));
+
+	// Drop down the frame-size for a higher *initial frame-rate*. Use only with `PIXFORMAT_JPEG`...?:
+	// if (config_camera.pixel_format == PIXFORMAT_JPEG) {
+	sensor_t *sensor = esp_camera_sensor_get(); // Can't be a `const*`, see method calls in conditional compilation blocks below.
+	sensor->set_framesize(sensor, FRAMESIZE_VGA);
+	// }
+
+	// Modding these into `INPUT` pins might help the Arduino not pick up on these:
+	// pinMode(CAR_PIN_DIGITAL_ESP_CAM_STEER, OUTPUT);
+	// pinMode(CAR_PIN_DIGITAL_ESP_CAM_1, OUTPUT);
+	// pinMode(CAR_PIN_DIGITAL_ESP_CAM_2, OUTPUT);
+
+	wifi_init_sta();
 }
 
 void wifi_init_sta() {
@@ -163,59 +196,4 @@ void wifi_init_sta() {
 	ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
 	ESP_ERROR_CHECK(esp_wifi_start());
 	ESP_LOGI(TAG, "WiFi started.");
-}
-
-extern "C" void app_main() {
-	// ESP_ERROR_CHECK(esp_psram_init()); // Results in an `ESP_ERR_INVALID_STATE`, because... PSRAM was init'ed *already?!*
-	ESP_ERROR_CHECK(nvs_flash_init());
-
-	ESP_LOGI(TAG, "PSRAM size? `%zu` bytes!", esp_psram_get_size());
-
-	camera_config_t config_camera;
-
-	config_camera.pin_d0 = 5;
-	config_camera.pin_d1 = 18;
-	config_camera.pin_d2 = 19;
-	config_camera.pin_d3 = 21;
-	config_camera.pin_d4 = 36;
-	config_camera.pin_d5 = 39;
-	config_camera.pin_d6 = 34;
-	config_camera.pin_d7 = 35;
-
-	config_camera.pin_xclk = 0;
-	config_camera.pin_pclk = 22;
-
-	config_camera.pin_href = 23;
-	config_camera.pin_pwdn = 32;
-	config_camera.pin_reset = -1;
-	config_camera.pin_vsync = 25;
-
-	config_camera.pin_sccb_scl = 27;
-	config_camera.pin_sccb_sda = 26;
-
-	config_camera.xclk_freq_hz = 20000000;
-	config_camera.ledc_timer = LEDC_TIMER_0;
-	config_camera.ledc_channel = LEDC_CHANNEL_0;
-
-	config_camera.fb_count = 2;
-	config_camera.jpeg_quality = 7;
-	config_camera.frame_size = FRAMESIZE_VGA;
-	config_camera.pixel_format = PIXFORMAT_JPEG; // `PIXFORMAT_JPEG` for streaming. `PIXFORMAT_RGB565` for face detection and recognition!
-	config_camera.fb_location = CAMERA_FB_IN_PSRAM;
-	config_camera.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
-
-	ESP_ERROR_CHECK(esp_camera_init(&config_camera));
-
-	// Drop down the frame-size for a higher *initial frame-rate*. Use only with `PIXFORMAT_JPEG`...?:
-	// if (config_camera.pixel_format == PIXFORMAT_JPEG) {
-	sensor_t *sensor = esp_camera_sensor_get(); // Can't be a `const*`, see method calls in conditional compilation blocks below.
-	sensor->set_framesize(sensor, FRAMESIZE_VGA);
-	// }
-
-	// Modding these into `INPUT` pins might help the Arduino not pick up on these:
-	// pinMode(CAR_PIN_DIGITAL_ESP_CAM_STEER, OUTPUT);
-	// pinMode(CAR_PIN_DIGITAL_ESP_CAM_1, OUTPUT);
-	// pinMode(CAR_PIN_DIGITAL_ESP_CAM_2, OUTPUT);
-
-	wifi_init_sta();
 }

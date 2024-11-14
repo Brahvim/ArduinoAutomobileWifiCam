@@ -1,22 +1,58 @@
+// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 #include <errno.h>
 #include <stdint.h>
 #include <string.h>
 
 #include <esp_log.h>
+#include <esp_timer.h>
+#include <esp_camera.h>
+#include <esp_http_server.h>
 
-#include <driver/ledc.h>
+#include <sdkconfig.h>
+
 #include <esp_adc/adc_oneshot.h>
 
 #include "app.h"
-#include "app_controls.hpp"
+#include "app_http_endpoints.h"
 #include "protocol_car_controls.hpp"
 #include "protocol_android_controls.hpp"
+
+#define PART_BOUNDARY "123456789000000000000987654321"
+
+// Globals!
+
+httpd_uri_t g_stream_uri = {
+
+		.uri = "/stream",
+		.method = HTTP_GET,
+		.handler = uri_handler_stream,
+		.user_ctx = NULL,
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+		.is_websocket = true,
+		.handle_ws_control_frames = false,
+		.supported_subprotocol = NULL
+#endif
+
+};
 
 httpd_uri_t g_uri_controls = {
 
 		.uri = "/controls",
 		.method = HTTP_GET,
-		.handler = android_controls_handler,
+		.handler = uri_handler_controls,
 		.user_ctx = NULL,
 
 #ifdef CONFIG_HTTPD_WS_SUPPORT
@@ -27,35 +63,157 @@ httpd_uri_t g_uri_controls = {
 
 };
 
-int volatile g_carSteerNewValue = 0;
-int volatile g_carSteerPreviousValue = 0;
+int volatile g_car_steer_new = 0;
+int volatile g_car_steer_old = 0;
 
-static char const *TAG = __FILE__;
-static bool s_carModeControls = true;
+httpd_handle_t stream_httpd = NULL;
+httpd_handle_t camera_httpd = NULL;
+
+// `static` stuff.
+static const char *_STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\nX-Timestamp: %d.%06d\r\n\r\n";
+static const char *_STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
+static const char *_STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
+
+static const char *TAG = __FILE__;
+
+static bool s_car_mode_is_controls = true;
+
+void start_camera_server() {
+	httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+	// config.max_uri_handlers = 16;
+	config.max_uri_handlers = 2;
+
+	ESP_LOGI(TAG, "Starting web server on port: '%d'", config.server_port);
+	if (httpd_start(&camera_httpd, &config) == ESP_OK) {
+		httpd_register_uri_handler(camera_httpd, &g_uri_controls);
+	}
+
+	config.ctrl_port += 1;
+	config.server_port += 1;
+	ESP_LOGI(TAG, "Starting stream server on port: '%d'", config.server_port);
+
+	if (httpd_start(&stream_httpd, &config) == ESP_OK) {
+		httpd_register_uri_handler(stream_httpd, &g_stream_uri);
+	}
+}
 
 // HTTP stuff.
-esp_err_t send200(httpd_req_t *p_request) {
+esp_err_t send200(httpd_req_t *const p_request) {
 	esp_err_t to_ret = ESP_OK;
 	to_ret &= httpd_resp_set_status(p_request, "200 OK");
 	to_ret &= httpd_resp_send(p_request, NULL, 0);
 	return to_ret;
 }
 
-esp_err_t send400(httpd_req_t *p_request) {
+esp_err_t send400(httpd_req_t *const p_request) {
 	esp_err_t to_ret = ESP_OK;
 	to_ret &= httpd_resp_set_status(p_request, "400 Bad Request");
 	to_ret &= httpd_resp_send(p_request, NULL, 0);
 	return to_ret;
 }
 
-esp_err_t send500(httpd_req_t *p_request) {
+esp_err_t send500(httpd_req_t *const p_request) {
 	esp_err_t to_ret = ESP_OK;
 	to_ret &= httpd_resp_set_status(p_request, "500 Internal Server Error");
 	to_ret &= httpd_resp_send(p_request, NULL, 0);
 	return to_ret;
 }
 
-esp_err_t android_controls_handler(httpd_req_t *p_request) {
+esp_err_t uri_handler_stream(httpd_req_t *const p_request) {
+	static int64_t last_frame = 0;
+	static char *part_buf[128];
+
+	struct timeval timestamp;
+	camera_fb_t *fb = NULL;
+	esp_err_t err = ESP_OK;
+
+	size_t jpg_buf_len = 0;
+	uint8_t *jpg_buf = NULL;
+
+	if (!last_frame) {
+		last_frame = esp_timer_get_time();
+	}
+
+	err = httpd_resp_set_type(p_request, _STREAM_CONTENT_TYPE);
+	if (err != ESP_OK) {
+		return err;
+	}
+
+	httpd_resp_set_hdr(p_request, "Access-Control-Allow-Origin", "*");
+	httpd_resp_set_hdr(p_request, "X-Framerate", "60");
+
+	while (true) {
+		fb = esp_camera_fb_get();
+
+		if (!fb) {
+
+			ESP_LOGE(TAG, "Camera capture failed!...");
+			err = ESP_FAIL;
+
+		} else {
+
+			timestamp.tv_usec = fb->timestamp.tv_usec;
+			timestamp.tv_sec = fb->timestamp.tv_sec;
+
+			if (fb->format != PIXFORMAT_JPEG) {
+
+				bool jpeg_converted = frame2jpg(fb, 80, &jpg_buf, &jpg_buf_len);
+				esp_camera_fb_return(fb);
+				fb = NULL;
+
+				if (!jpeg_converted) {
+					ESP_LOGE(TAG, "JPEG compression failed");
+					err = ESP_FAIL;
+				}
+
+			} else {
+
+				jpg_buf_len = fb->len;
+				jpg_buf = fb->buf;
+
+			}
+
+		}
+
+		if (err == ESP_OK) {
+			err = httpd_resp_send_chunk(p_request, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
+		}
+
+		if (err == ESP_OK) {
+			size_t const hlen = snprintf((char*) part_buf, 128, _STREAM_PART, jpg_buf_len, timestamp.tv_sec, timestamp.tv_usec);
+			err = httpd_resp_send_chunk(p_request, (const char*) part_buf, hlen);
+		}
+
+		if (err == ESP_OK) {
+			err = httpd_resp_send_chunk(p_request, (const char*) jpg_buf, jpg_buf_len);
+		}
+
+		if (fb) {
+
+			esp_camera_fb_return(fb);
+			fb = NULL;
+			jpg_buf = NULL;
+
+		} else if (jpg_buf) {
+
+			free(jpg_buf);
+			jpg_buf = NULL;
+
+		}
+
+		if (err != ESP_OK) {
+
+			ESP_LOGE(TAG, "Send frame failed");
+			break;
+
+		}
+
+	}
+
+	return err;
+}
+
+esp_err_t uri_handler_controls(httpd_req_t *const p_request) {
 	size_t const str_query_len = 1 + httpd_req_get_url_query_len(p_request);
 	httpd_resp_set_type(p_request, "application/octet-stream");
 
@@ -207,13 +365,13 @@ esp_err_t android_controls_handler(httpd_req_t *p_request) {
 
 		ESP_LOGI(TAG, "Car should be changing modes...");
 
-		if (s_carModeControls) {
+		if (s_car_mode_is_controls) {
 
 			// digitalWrite(CAR_PIN_DIGITAL_ESP_CAM_1, LOW);
 			// digitalWrite(CAR_PIN_DIGITAL_ESP_CAM_2, LOW);
 			send200(p_request);
 
-			s_carModeControls = false;
+			s_car_mode_is_controls = false;
 			ESP_LOGI(TAG, "Car should avoid obstacles now.");
 			return ESP_OK;
 
@@ -223,7 +381,7 @@ esp_err_t android_controls_handler(httpd_req_t *p_request) {
 			// digitalWrite(CAR_PIN_DIGITAL_ESP_CAM_2, LOW);
 			send200(p_request);
 
-			s_carModeControls = true;
+			s_car_mode_is_controls = true;
 			ESP_LOGI(TAG, "Car should listen to controls now.");
 			return ESP_OK;
 
