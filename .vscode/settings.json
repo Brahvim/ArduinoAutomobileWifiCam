@@ -94,6 +94,6 @@
         "utility": "cpp",
         "esp_attr.h": "c"
     },
-    "sonarlint.pathToCompileCommands": "${workspaceFolder}/build/compile_commands.json",
-    "idf.pythonInstallPath": "/usr/bin/python"
+    "idf.pythonInstallPath": "/usr/bin/python",
+    "sonarlint.pathToCompileCommands": "${workspaceFolder}/build/compile_commands.json"
 }
